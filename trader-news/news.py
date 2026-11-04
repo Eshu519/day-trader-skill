@@ -192,7 +192,10 @@ class Fetcher(object):
 
 
 def yahoo_symbol(ticker):
-    return ticker.upper().replace(".", "-")
+    s = ticker.upper()
+    if s.endswith(".NS"):
+        return s
+    return s.replace(".", "-")
 
 
 def cik_map(fetcher, state):

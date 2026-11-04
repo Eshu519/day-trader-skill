@@ -268,7 +268,11 @@ def yahoo_get(path):
 
 
 def to_yahoo(sym):
-    return sym.upper().replace(".", "-")
+    s = sym.upper()
+    # NSE Indian tickers (e.g. RELIANCE.NS) keep the dot; US class shares (BRK.B) become BRK-B
+    if s.endswith(".NS"):
+        return s
+    return s.replace(".", "-")
 
 
 def spark_path(symbols, rng, interval):

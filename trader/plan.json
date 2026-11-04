@@ -1,0 +1,28 @@
+{
+  "created_by": "trader-exit",
+  "symbol": "HDFCBANK.NS",
+  "side": "buy",
+  "date": "2026-11-04",
+  "setup": "breakout_20d",
+  "entry": 731.9,
+  "entry_time": "10:15 AM",
+  "entry_bar": 8,
+  "interval": "5m",
+  "opening_range": {
+    "high": 735.0,
+    "low": 725.0,
+    "minutes": 15
+  },
+  "stop": 730.0,
+  "stop_rule": "or_mid",
+  "stop_label": "opening-range midpoint",
+  "target": 733.8,
+  "target_r": 1.0,
+  "target_label": "1R (one times the risk)",
+  "risk_per_share": 1.9,
+  "reward_risk": 1.0,
+  "flat_by": "15:55",
+  "stop_detail": "($735.00 + $725.00) / 2 = $730",
+  "created_at": "2026-11-04T07:52:09Z",
+  "note": "A stop is a plan, not a guarantee: a gap or a fast market can fill past it."
+}
