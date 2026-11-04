@@ -1,0 +1,16 @@
+# Runtime state: the skills write their outputs here (config, plans, alerts, logs)
+trader/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

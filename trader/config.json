@@ -14,7 +14,7 @@
   "no_entries_after": "15:30",
   "flat_by": "15:55",
   "fractional": false,
-  "broker": "alpaca",
+  "broker": "groww",
   "paper": true,
   "blocked": [],
   "allow_options": false,
