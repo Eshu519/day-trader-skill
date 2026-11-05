@@ -61,6 +61,39 @@ def add_alerts():
     result = run(cmd)
     return result.returncode == 0, result.stdout
 
+def fetch_groww_balance():
+    """Fetch available balance from Groww and write to trader/portfolio.json."""
+    sys.path.insert(0, SKILL_DIR)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('groww_connector', f'{SKILL_DIR}/trader-broker/groww_connector.py')
+    groww_connector = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(groww_connector)
+    
+    from growwapi import GrowwAPI
+    groww = groww_connector.groww
+    
+    try:
+        margin = groww.get_available_margin_details()
+        # Extract available cash for equity CNC
+        equity_margin = margin.get("equity_margin_details", {})
+        available_cash = equity_margin.get("cnc_balance_available", 0)
+        
+        # Write to trader/portfolio.json
+        portfolio = {
+            "cash": available_cash,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "source": "groww"
+        }
+        os.makedirs("trader", exist_ok=True)
+        with open("trader/portfolio.json", "w") as f:
+            json.dump(portfolio, f, indent=2)
+        
+        print(f"Fetched Groww balance: Rs{available_cash:.2f} available for CNC")
+        return True, available_cash
+    except Exception as e:
+        print(f"Failed to fetch Groww balance: {type(e).__name__}: {e}")
+        return False, 0
+
 def run_budget():
     """Run trader-budget to size the position."""
     cmd = f"{PYTHON} {SKILL_DIR}/trader-budget/size.py --write"
@@ -165,6 +198,12 @@ while True:
         alerts_ok, alerts_out = add_alerts()
         if alerts_ok:
             print(alerts_out.strip())
+        
+        # Fetch Groww balance before budget sizing
+        print("Fetching Groww balance...")
+        balance_ok, balance = fetch_groww_balance()
+        if not balance_ok:
+            print("Failed to fetch balance, using config budget")
         
         # Run budget sizing
         print("Running budget sizing...")
