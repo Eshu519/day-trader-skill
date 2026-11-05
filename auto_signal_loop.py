@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Auto-signal loop: trader-scanner -> trader-news -> trader-exit -> write plan.json.
-Runs every 5 min until interrupted. Uses skills only; never places orders."""
+Runs every 10 min until interrupted. Uses skills only; never places orders."""
 import time, subprocess, sys, os, json
 sys.path.insert(0, os.path.dirname(__file__))
 
-INTERVAL = 300  # 5 min
+INTERVAL = 600  # 10 min
 SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON = sys.executable
 
