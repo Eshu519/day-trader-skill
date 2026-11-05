@@ -58,19 +58,13 @@ def create_plan(symbol, entry_price):
 while True:
     print(f"\n=== Auto-signal loop: {time.strftime('%Y-%m-%d %H:%M')} ===")
     
-    # 1. Scan US universe
-    print("Scanning US universe...")
-    us_hits = scan_universe("trader/universe.txt", limit=1000)
-    print(f"  US hits: {len(us_hits)}")
-    
-    # 2. Scan India universe
+    # Scan India universe only (skip US)
     print("Scanning India universe...")
     india_hits = scan_universe("trader/universe_india.txt", limit=500)
     print(f"  India hits: {len(india_hits)}")
     
-    # 3. Combine and pick best
-    all_hits = us_hits + india_hits
-    best = pick_best_hit(all_hits)
+    # Pick best from India only
+    best = pick_best_hit(india_hits)
     
     if best:
         symbol = best["symbol"]

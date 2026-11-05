@@ -194,11 +194,23 @@ def market_status(now_utc):
 # ---------------------------------------------------------------- quotes
 
 def stooq_url(sym):
-    return "https://stooq.com/q/l/?s=%s.us&f=sd2t2ohlcv&h&e=csv" % sym.lower().replace(".", "-")
+    s = sym.lower()
+    # NSE Indian tickers (e.g. RELIANCE.NS) keep the dot for stooq
+    if s.endswith(".ns"):
+        stooq_sym = s
+    else:
+        stooq_sym = s.replace(".", "-")
+    return "https://stooq.com/q/l/?s=%s.us&f=sd2t2ohlcv&h&e=csv" % stooq_sym
 
 
 def yahoo_url(sym, host=YAHOO_HOSTS[0]):
-    return "https://%s/v8/finance/chart/%s?range=1d&interval=1d" % (host, sym.upper().replace(".", "-"))
+    s = sym.upper()
+    # NSE Indian tickers (e.g. RELIANCE.NS) keep the dot; US class shares (BRK.B) become BRK-B
+    if s.endswith(".NS"):
+        yahoo_sym = s
+    else:
+        yahoo_sym = s.replace(".", "-")
+    return "https://%s/v8/finance/chart/%s?range=1d&interval=1d" % (host, yahoo_sym)
 
 
 def parse_stooq(text, sym):

@@ -391,7 +391,12 @@ def read_text(path):
 
 
 def load_chart(sym, interval, day, offline=None):
-    ysym = sym.upper().replace(".", "-")
+    s = sym.upper()
+    # NSE Indian tickers (e.g. RELIANCE.NS) keep the dot; US class shares (BRK.B) become BRK-B
+    if s.endswith(".NS"):
+        ysym = s
+    else:
+        ysym = s.replace(".", "-")
     if offline:
         path = offline
         if os.path.isdir(offline):

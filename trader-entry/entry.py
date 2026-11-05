@@ -228,7 +228,11 @@ def next_open(d):
 # ---------------------------------------------------------------- Yahoo
 
 def yahoo_symbol(sym):
-    return sym.upper().replace(".", "-")
+    s = sym.upper()
+    # NSE Indian tickers (e.g. RELIANCE.NS) keep the dot; US class shares (BRK.B) become BRK-B
+    if s.endswith(".NS"):
+        return s
+    return s.replace(".", "-")
 
 
 def chart_path(sym, rng, interval):
