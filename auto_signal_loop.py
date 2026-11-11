@@ -98,7 +98,14 @@ def run_budget():
     """Run trader-budget to size the position."""
     cmd = f"{PYTHON} {SKILL_DIR}/trader-budget/size.py --write"
     result = run(cmd)
-    return result.returncode == 0, result.stdout
+    out = result.stdout.strip()
+    if result.returncode != 0:
+        # size.py prints its refusal to stdout, but a crash (e.g. a syntax error)
+        # only shows up on stderr; surface both so the failure is never blank.
+        err = result.stderr.strip()
+        if err:
+            out = (out + "\n" + err).strip() if out else err
+    return result.returncode == 0, out
 
 def run_risk():
     """Run trader-risk check."""

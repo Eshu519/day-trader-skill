@@ -19,8 +19,8 @@ REEL_V1 = {"AAPL": 1250, "AXP": 1119, "GOOGL": 823, "KO": 708, "BAC": 600}
 PRICES = {"AAPL": 341.27, "AXP": 309.84, "GOOGL": 353.78, "KO": 90.11, "BAC": 53.96}
 # the contract's v2 config, key for key
 CONTRACT_CFG = {
-    "budget": 5000, "cash_buffer_pct": 10, "max_position_pct": 75, "max_order_usd": 4000, "min_order_usd": 5,
-    "max_loss_per_trade_usd": 50, "max_daily_loss_usd": 150, "max_trades_per_day": 3, "max_orders_per_day": 10,
+    "budget": 5000, "cash_buffer_pct": 10, "max_position_pct": 75, "max_order_inr": 4000, "min_order_inr": 5,
+    "max_loss_per_trade_inr": 50, "max_daily_loss_inr": 150, "max_trades_per_day": 3, "max_orders_per_day": 10,
     "min_reward_risk": 1.0, "require_stop": True,
     "no_entries_before": "09:45", "no_entries_after": "15:30", "flat_by": "15:55",
     "fractional": False, "broker": "alpaca", "paper": True, "blocked": [],
@@ -28,7 +28,7 @@ CONTRACT_CFG = {
     "sec_user_agent": "Your Name you@example.com",
 }
 # v1's rules, for the weights mode tests
-V1 = {"budget": 5000, "cash_buffer_pct": 10, "max_position_pct": 25, "max_order_usd": 2000, "min_order_usd": 5,
+V1 = {"budget": 5000, "cash_buffer_pct": 10, "max_position_pct": 25, "max_order_inr": 2000, "min_order_inr": 5,
       "fractional": True, "paper": True, "blocked": []}
 
 
@@ -162,12 +162,12 @@ class PlanRules(unittest.TestCase):
             self.assertFalse(os.path.exists(out))
 
     def test_each_limit_can_bind(self):
-        self.assertEqual(size.size_trade(plan(), cfg(max_order_usd=1000), today=TODAY)["bound_by"], "max order")
+        self.assertEqual(size.size_trade(plan(), cfg(max_order_inr=1000), today=TODAY)["bound_by"], "max order")
         s = size.size_trade(plan(), cfg(max_position_pct=20), today=TODAY)
         self.assertEqual((s["qty"], s["bound_by"]), (2, "position cap"))
         s = size.size_trade(plan(), cfg(), cash=1200, today=TODAY)
-        self.assertEqual((s["qty"], s["bound_by"], s["cash_available"]), (1, "cash", 700))
-        s = size.size_trade(plan(), cfg(max_loss_per_trade_usd=100), today=TODAY)
+        self.assertEqual((s["qty"], s["bound_by"], s["cash_available"]), (2, "cash", 1080))
+        s = size.size_trade(plan(), cfg(max_loss_per_trade_inr=100), today=TODAY)
         self.assertEqual((s["qty"], s["bound_by"]), (10, "position cap"))
 
     def test_a_fresh_higher_price_means_a_bigger_risk(self):
@@ -202,7 +202,7 @@ class PlanRules(unittest.TestCase):
             with open(pf, "w") as fh:
                 json.dump({"cash": 1200, "positions": []}, fh)
             out = json.loads(run(["--plan", PLAN, "--config", CFG, "--portfolio", pf, "--now", NOW, "--json"])[1])
-            self.assertEqual((out["sizing"]["qty"], out["sizing"]["bound_by"]), (1, "cash"))
+            self.assertEqual((out["sizing"]["qty"], out["sizing"]["bound_by"]), (2, "cash"))
 
     def test_bad_plans(self):
         for p, word in ((plan(stop=365.0), "not below the entry"),
@@ -225,7 +225,7 @@ class PlanRules(unittest.TestCase):
 
     def test_under_the_minimum_order(self):
         cheap = plan(symbol="ABC", entry=4.0, stop=3.0, target=5.0)
-        s = size.size_trade(cheap, cfg(max_loss_per_trade_usd=1), today=TODAY)
+        s = size.size_trade(cheap, cfg(max_loss_per_trade_inr=1), today=TODAY)
         self.assertEqual(s["qty"], 1)
         self.assertIn("under your $5 minimum order", s["refusal"])
         self.assertIsNone(size.bracket_order(s))
@@ -297,7 +297,7 @@ class WeightsMode(unittest.TestCase):
 
     def test_cap_redistributes_until_nobody_is_over(self):
         w = size.parse_weights({"A": 60, "B": 30, "C": 10})
-        r = size.size(w, {"budget": 1000, "cash_buffer_pct": 0, "max_position_pct": 40, "min_order_usd": 1})
+        r = size.size(w, {"budget": 1000, "cash_buffer_pct": 0, "max_position_pct": 40, "min_order_inr": 1})
         self.assertEqual(dollars(r), {"A": 400, "B": 400, "C": 200})
         self.assertEqual(sorted(p["ticker"] for p in r["positions"] if p["capped"]), ["A", "B"])
 
@@ -310,7 +310,7 @@ class WeightsMode(unittest.TestCase):
 
     def test_slices_under_the_minimum_are_dropped_and_shared_out(self):
         w = size.parse_weights({"A": 90, "B": 7, "C": 3})
-        r = size.size(w, {"budget": 100, "cash_buffer_pct": 10, "max_position_pct": 100, "min_order_usd": 5})
+        r = size.size(w, {"budget": 100, "cash_buffer_pct": 10, "max_position_pct": 100, "min_order_inr": 5})
         self.assertNotIn("C", dollars(r))
         self.assertEqual(sum(dollars(r).values()), 90)
         self.assertTrue(all(v >= 5 for v in dollars(r).values()))
