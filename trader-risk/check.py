@@ -249,7 +249,7 @@ def _f(x):
 
 
 def money(x):
-    return "$" + "{:,.2f}".format(float(x)).replace(".00", "")
+    return "Rs" + "{:,.2f}".format(float(x)).replace(".00", "")
 
 
 def _cent(x):

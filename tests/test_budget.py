@@ -22,7 +22,7 @@ CONTRACT_CFG = {
     "budget": 5000, "cash_buffer_pct": 10, "max_position_pct": 75, "max_order_inr": 4000, "min_order_inr": 5,
     "max_loss_per_trade_inr": 50, "max_daily_loss_inr": 150, "max_trades_per_day": 3, "max_orders_per_day": 10,
     "min_reward_risk": 1.0, "require_stop": True,
-    "no_entries_before": "09:45", "no_entries_after": "15:30", "flat_by": "15:55",
+    "no_entries_before": "09:30", "no_entries_after": "15:00", "flat_by": "15:25",
     "fractional": False, "broker": "alpaca", "paper": True, "blocked": [],
     "allow_options": False, "allow_margin": False, "allow_short": False, "pdt_guard": False,
     "sec_user_agent": "Your Name you@example.com",
@@ -74,7 +74,7 @@ def prices_doc(price, quote_time="2026-10-19T14:52:13Z"):
 
 
 class TheReel(unittest.TestCase):
-    """$5,000, 10% buffer, $50 max loss, TSLA risk 5.86 -> 8 shares, $2,913.44, max loss $46.88."""
+    """Rs5,000, 10% buffer, Rs50 max loss, TSLA risk 5.86 -> 8 shares, Rs2,913.44, max loss Rs46.88."""
 
     def test_config_example_is_the_contract(self):
         with open(CFG) as fh:
@@ -101,9 +101,9 @@ class TheReel(unittest.TestCase):
             "symbol": "TSLA", "side": "buy", "qty": "8", "type": "market", "time_in_force": "day",
             "order_class": "bracket", "take_profit_limit_price": "370.04", "stop_loss_stop_price": "358.32",
             "plan": {"entry": 364.18, "stop": 358.32, "target": 370.04, "risk_per_share": 5.86,
-                     "max_loss": 46.88, "setup": "orb", "entry_time": "10:15 AM", "flat_by": "15:55"}})
-        self.assertIn("bound by your $50 max loss", why)
-        self.assertIn("$46.88", why)
+                     "max_loss": 46.88, "setup": "orb", "entry_time": "10:15 AM", "flat_by": "15:25"}})
+        self.assertIn("bound by your Rs50 max loss", why)
+        self.assertIn("Rs46.88", why)
 
     def test_the_fixture_orders_file_is_what_it_writes(self):
         with open(os.path.join(FIX, "trader-risk", "orders-tsla.json")) as fh:
@@ -123,8 +123,8 @@ class TheReel(unittest.TestCase):
             code, text, _ = run(["--plan", PLAN, "--config", CFG, "--portfolio", os.path.join(d, "none"),
                                  "--now", NOW, "--write", out])
             self.assertEqual(code, 0)
-            self.assertIn("Size: 8 shares of TSLA = $2,913.44 at 364.18", text)
-            self.assertIn("8 x 5.86 = $46.88", text)
+            self.assertIn("Size: 8 shares of TSLA = Rs2,913.44 at 364.18", text)
+            self.assertIn("8 x 5.86 = Rs46.88", text)
             self.assertIn("<- binds", text)
             self.assertIn("not financial advice", text)
             with open(out) as fh:
@@ -148,7 +148,7 @@ class PlanRules(unittest.TestCase):
     def test_zero_shares_is_a_plain_refusal(self):
         s = size.size_trade(plan(stop=300.0), cfg(), today=TODAY)
         self.assertEqual(s["qty"], 0)
-        self.assertIn("more than your $50 max loss per trade", s["refusal"])
+        self.assertIn("more than your Rs50 max loss per trade", s["refusal"])
         self.assertIsNone(size.bracket_order(s))
         with tempfile.TemporaryDirectory() as d:
             p = os.path.join(d, "plan.json")
@@ -166,7 +166,7 @@ class PlanRules(unittest.TestCase):
         s = size.size_trade(plan(), cfg(max_position_pct=20), today=TODAY)
         self.assertEqual((s["qty"], s["bound_by"]), (2, "position cap"))
         s = size.size_trade(plan(), cfg(), cash=1200, today=TODAY)
-        self.assertEqual((s["qty"], s["bound_by"], s["cash_available"]), (2, "cash", 1080))
+        self.assertEqual((s["qty"], s["bound_by"], s["cash_available"]), (2, "position cap", 1080))
         s = size.size_trade(plan(), cfg(max_loss_per_trade_inr=100), today=TODAY)
         self.assertEqual((s["qty"], s["bound_by"]), (10, "position cap"))
 
@@ -227,7 +227,7 @@ class PlanRules(unittest.TestCase):
         cheap = plan(symbol="ABC", entry=4.0, stop=3.0, target=5.0)
         s = size.size_trade(cheap, cfg(max_loss_per_trade_inr=1), today=TODAY)
         self.assertEqual(s["qty"], 1)
-        self.assertIn("under your $5 minimum order", s["refusal"])
+        self.assertIn("under your Rs5 minimum order", s["refusal"])
         self.assertIsNone(size.bracket_order(s))
 
     def test_missing_plan_and_weights_only_flags(self):
@@ -243,7 +243,7 @@ class PlanRules(unittest.TestCase):
 
 
 class WeightsMode(unittest.TestCase):
-    """v1's split, kept behind --weights / --targets: $5,000, 10% cash, 25% cap."""
+    """v1's split, kept behind --weights / --targets: Rs5,000, 10% cash, 25% cap."""
 
     def check_reel(self, r):
         self.assertEqual(dollars(r), REEL_V1)

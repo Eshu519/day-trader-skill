@@ -216,14 +216,14 @@ class Rules(unittest.TestCase):
         rules = [{"id": "aapl-340", "symbol": "AAPL", "type": "above", "price": 340}]
         rings, st = alerts.evaluate(rules, self.q, self.open, {}, self.now)
         self.assertEqual(len(rings), 1)
-        self.assertIn("AAPL is $341.27: at or above your alert level $340", rings[0]["message"])
+        self.assertIn("AAPL is Rs341.27: at or above your alert level Rs340", rings[0]["message"])
         rings, st = alerts.evaluate(rules, self.q, self.open, st, self.now)
         self.assertEqual(rings, [])
 
     def test_stop_and_rearm(self):
         rules = [{"id": "bac-stop", "symbol": "BAC", "type": "stop", "price": 54, "rearm": True}]
         rings, st = alerts.evaluate(rules, self.q, self.open, {}, self.now)
-        self.assertIn("your stop $54", rings[0]["message"])
+        self.assertIn("your stop Rs54", rings[0]["message"])
         self.q["BAC"]["price"] = 55.0
         rings, st = alerts.evaluate(rules, self.q, self.open, st, self.now)
         self.assertEqual(rings, [])
@@ -243,7 +243,7 @@ class Rules(unittest.TestCase):
         self.assertEqual(alerts.evaluate(up, self.q, self.open, {}, self.now)[0], [])
         tsla = [{"id": "tsla-3", "symbol": "TSLA", "type": "pct_move", "pct": 3}]
         rings, _ = self.at("2026-10-19 10:52", tsla)
-        self.assertIn("TSLA moved +3.31% to $366.48 (from $354.72)", rings[0]["message"])
+        self.assertIn("TSLA moved +3.31% to Rs366.48 (from Rs354.72)", rings[0]["message"])
 
     def test_opening_bell_once_per_trading_day(self):
         rules = [{"id": "bell", "type": "opening_bell"}]
@@ -268,7 +268,7 @@ class Rules(unittest.TestCase):
         q["TSLA"]["price"] = 358.10
         rings, st = self.at("2026-10-19 11:30", rules, st, q)
         self.assertEqual([r["id"] for r in rings], ["tsla-plan-stop"])
-        self.assertIn("TSLA is $358.10: at or below your stop $358.32 (plan stop: opening-range midpoint)",
+        self.assertIn("TSLA is Rs358.10: at or below your stop Rs358.32 (plan stop: opening-range midpoint)",
                       rings[0]["message"])
         q["TSLA"]["price"] = 370.04
         self.assertEqual([r["id"] for r in self.at("2026-10-19 12:00", rules, st, q)[0]], ["tsla-plan-target"])
@@ -337,7 +337,7 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 0)                                      # the opening bell rings first
         code, text, _ = self.check("2026-10-19 10:53")
         self.assertEqual(code, 1)
-        self.assertIn("Nothing hit. 4 rule(s) watched today, TSLA $366.48.", text)
+        self.assertIn("Nothing hit. 4 rule(s) watched today, TSLA Rs366.48.", text)
         with open(self.prices) as fh:
             doc = json.load(fh)
         self.assertEqual(doc["prices"], {"TSLA": 366.475})
@@ -410,7 +410,7 @@ class Cli(unittest.TestCase):
         code, text, _ = run(["quote", "AAPL", "KO", "--offline", QDIR, "--write", self.prices,
                              "--now", "2026-10-13T20:00:01Z"])
         self.assertEqual(code, 0)
-        self.assertIn("AAPL   $341.27", text)
+        self.assertIn("AAPL   Rs341.27", text)
         self.assertIn("delayed", text)
         run(["quote", "BAC", "--offline", QDIR, "--write", self.prices])
         with open(self.prices) as fh:

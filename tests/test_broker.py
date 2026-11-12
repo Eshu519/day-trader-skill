@@ -21,7 +21,7 @@ BATCH = ["AAPL", "AXP", "GOOGL", "KO", "BAC"]
 TSLA_CALL = {"symbol": "TSLA", "side": "buy", "qty": "8", "type": "market", "time_in_force": "day",
              "order_class": "bracket", "take_profit_limit_price": "370.04", "stop_loss_stop_price": "358.32"}
 TSLA_PLAIN = ("BUY 8 TSLA, market, good for today / stop-loss 358.32 / take-profit 370.04 / max loss about "
-              "$46.88 if the stop fills at 358.32 (it can fill worse in a fast market)")
+              "Rs46.88 if the stop fills at 358.32 (it can fill worse in a fast market)")
 
 
 def tsla(**over):
@@ -43,7 +43,7 @@ class ExplicitYes(unittest.TestCase):
         return ticket.parse_yes(reply, order, batch)[0]
 
     def test_plain_yes_counts(self):
-        for r in ("yes", "Yes.", "YES", "y", "yes place it", "Yes, buy it", "yes AAPL", "yes $1,250 of AAPL",
+        for r in ("yes", "Yes.", "YES", "y", "yes place it", "Yes, buy it", "yes AAPL", "yes Rs1,250 of AAPL",
                   "yes 1250"):
             self.assertTrue(self.yes(r), r)
 
@@ -81,10 +81,10 @@ class TicketShape(unittest.TestCase):
         self.assertEqual(ticket.fingerprint(tsla()), ticket.fingerprint(TSLA_CALL))
 
     def test_plain_english(self):
-        self.assertEqual(ticket.plain(AAPL), "BUY $1,250 of AAPL, market order, good for today")
+        self.assertEqual(ticket.plain(AAPL), "BUY Rs1,250 of AAPL, market order, good for today")
         self.assertEqual(ticket.plain({"symbol": "KO", "side": "sell", "qty": "1", "type": "limit",
                                        "limit_price": "95", "time_in_force": "gtc"}),
-                         "SELL 1 share of KO, limit order at $95, good until canceled")
+                         "SELL 1 share of KO, limit order at Rs95, good until canceled")
         self.assertEqual(ticket.plain(tsla()), TSLA_PLAIN)
         lim = tsla(type="limit", limit_price="364.00")
         self.assertEqual(ticket.plain(lim).split(" / ")[0], "BUY 8 TSLA, limit 364.00, good for today")
@@ -186,9 +186,9 @@ class Flow(unittest.TestCase):
         self.assertIn("DONE: placed", text)
         code, text, _ = run(["log", "--state", self.state, "--now", NOW])
         self.assertIn("1 placed today", text)
-        self.assertIn("max loss $46.88", text)
+        self.assertIn("max loss Rs46.88", text)
 
-        # trader-risk now counts it: a second TSLA buy today is a duplicate, and $46.88 is used
+        # trader-risk now counts it: a second TSLA buy today is a duplicate, and Rs46.88 is used
         res = check.check([tsla()], {"budget": 5000}, state=st, now=check.parse_now("2026-10-19 10:30"))
         self.assertIn("already placed today", " ".join(res["results"][0]["reasons"]))
         self.assertEqual((res["today"]["entries_placed"], res["today"]["loss_at_risk"]), (1, 46.88))

@@ -9,7 +9,7 @@ description: >-
   trader/orders.json in the exact shape of Alpaca's place_stock_order. A stop
   too far away for your max loss is a plain refusal, not a smaller order.
   Nothing is placed. Use when the user says "how many shares", "size this
-  trade", "how much should I buy", "I have $5,000", "I only want to risk $50
+  trade", "how much should I buy", "I have Rs5,000", "I only want to risk Rs50
   a trade", "set my rules", "keep 10% in cash", or after /trader-exit writes
   a plan.
 argument-hint: "[budget in dollars]"
@@ -56,7 +56,7 @@ If `trader/config.json` does not exist, copy `config.example.json` into
 - **cash_buffer_pct**: how much always stays in cash (default 10).
 - **max_loss_per_trade_inr**: the most one trade may lose if the stop fills at the stop (default 50).
 - **max_position_pct**, **max_order_inr**, **min_order_inr**: the biggest position (75% of the
-  budget), the biggest order ($4,000) and the smallest order ($5).
+  budget), the biggest order (Rs4,000) and the smallest order (Rs5).
 - The day limits trader-risk enforces: **max_daily_loss_inr** (150), **max_trades_per_day** (3),
   **min_reward_risk** (1.0), **require_stop** (true), **no_entries_before** / **no_entries_after**
   ("09:45" / "15:30") and **flat_by** ("15:55"), all New York time.
@@ -101,28 +101,28 @@ promise: in a fast market it can fill below the stop. Then hand over to
 
 TSLA on Monday 2026-10-19. Opening-range breakout: entry 364.18 at 10:15 AM,
 stop 358.32 (the opening-range midpoint), target 370.04 (1R). Risk 5.86 a
-share. The example config: $5,000 budget, 10% cash buffer, $50 max loss.
+share. The example config: Rs5,000 budget, 10% cash buffer, Rs50 max loss.
 
 | limit | the math | shares |
 | --- | --- | --- |
-| max loss | $50 / 5.86 | **8 (decides it)** |
-| position cap | 75% of $5,000 = $3,750 / 364.18 | 10 |
-| max order | $4,000 / 364.18 | 10 |
-| cash | $5,000 minus $500 = $4,500 / 364.18 | 12 |
+| max loss | Rs50 / 5.86 | **8 (decides it)** |
+| position cap | 75% of Rs5,000 = Rs3,750 / 364.18 | 10 |
+| max order | Rs4,000 / 364.18 | 10 |
+| cash | Rs5,000 minus Rs500 = Rs4,500 / 364.18 | 12 |
 
-8 shares = $2,913.44. Max loss at the stop: 8 x 5.86 = $46.88. It writes:
+8 shares = Rs2,913.44. Max loss at the stop: 8 x 5.86 = Rs46.88. It writes:
 
 ```json
 {"symbol": "TSLA", "side": "buy", "qty": "8", "type": "market", "time_in_force": "day",
  "order_class": "bracket", "take_profit_limit_price": "370.04", "stop_loss_stop_price": "358.32",
- "why": "opening-range breakout on TSLA: 8 shares, bound by your $50 max loss per trade (8 x 5.86 = $46.88 at the stop)",
+ "why": "opening-range breakout on TSLA: 8 shares, bound by your Rs50 max loss per trade (8 x 5.86 = Rs46.88 at the stop)",
  "plan": {"entry": 364.18, "stop": 358.32, "target": 370.04, "risk_per_share": 5.86, "max_loss": 46.88,
           "setup": "orb", "entry_time": "10:15 AM", "flat_by": "15:55"}}
 ```
 
 `why` and `plan` are notes for trader-risk and trader-broker. They are never
 sent to Alpaca. With the stop at 300.00 instead, one share would risk 64.18,
-more than the $50 max loss: no order. At 10:52 the real quote was 366.48, so
+more than the Rs50 max loss: no order. At 10:52 the real quote was 366.48, so
 the same plan sizes to 6 shares at 8.16 a share, and reward:risk falls to
 0.44: refused, because the move it was waiting for has mostly happened.
 
@@ -134,7 +134,7 @@ top, weights are renormalised to 100, any stock over `max_position_pct` is
 pinned at the cap and its excess shared out, slices under the minimum order
 are dropped, and amounts round to whole dollars so nothing is left idle by
 accident. With `"max_position_pct": 25` and `"fractional": true`, the example
-file gives AAPL $1,250 (capped), AXP $1,119, GOOGL $823, KO $708, BAC $600.
+file gives AAPL Rs1,250 (capped), AXP Rs1,119, GOOGL Rs823, KO Rs708, BAC Rs600.
 With `"fractional": false` (the example config) it buys whole shares and
 needs prices (`--prices trader/prices.json`). These are plain buys with no stop: trader-risk blocks them while
 `require_stop` is true and counts each one against `max_trades_per_day`. Use

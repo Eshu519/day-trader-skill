@@ -92,7 +92,7 @@ class Math(unittest.TestCase):
             with self.assertRaises(exitp.PlanError) as cm:
                 c(364.18, stop, target)
             self.assertIn(why, str(cm.exception), stop)
-        # 0.05% of 364.18 is 0.182: a $0.19 risk is allowed, $0.18 is not
+        # 0.05% of 364.18 is 0.182: a Rs0.19 risk is allowed, Rs0.18 is not
         self.assertEqual(c(364.18, "price:363.99")["risk"], Decimal("0.19"))
         with self.assertRaises(exitp.PlanError):
             c(364.18, "price:364.00")
@@ -163,9 +163,9 @@ class Cli(unittest.TestCase):
         p = self.read_plan()
         for k, v in REEL_PLAN.items():
             self.assertEqual(p[k], v, k)
-        self.assertIn("Stop          $358.32  opening-range midpoint", text)
-        self.assertIn("Target        $370.04  1R (one times the risk)", text)
-        self.assertIn("Risk a share  $5.86 (1.61% of the entry)", text)
+        self.assertIn("Stop          Rs358.32  opening-range midpoint", text)
+        self.assertIn("Target        Rs370.04  1R (one times the risk)", text)
+        self.assertIn("Risk a share  Rs5.86 (1.61% of the entry)", text)
         self.assertIn("Reward:risk   1.0", text)
         self.assertIn("Flat by       15:55", text)
         self.assertIn("not a guarantee", text)
@@ -176,7 +176,7 @@ class Cli(unittest.TestCase):
         self.assertEqual(self.read_plan()["target_r"], 2.0)
         code, text, _ = run(exitp, ["show", "--now", "2026-10-19 10:20"])
         self.assertEqual(code, 0)
-        self.assertIn("$375.90", text)
+        self.assertIn("Rs375.90", text)
         self.assertNotIn("not today", text)
         code, text, _ = run(exitp, ["show", "--now", "2026-10-20 10:20"])
         self.assertIn("not today", text)
@@ -280,7 +280,7 @@ class SkillDoc(unittest.TestCase):
         self.assertGreater(len(text.splitlines()), 60)
         self.assertEqual(text[text.index("## Safety"):], risk[risk.index("## Safety"):])
         low = " ".join(text.lower().split())
-        for must in ("before the entry", "a stop is a plan, not a guarantee", "day trading loses most people money", "/trader-timemachine", "/trader-budget", "longs only", "$358.32", "$370.04", "$5.86", "375.90", "too tight to survive the spread"):
+        for must in ("before the entry", "a stop is a plan, not a guarantee", "day trading loses most people money", "/trader-timemachine", "/trader-budget", "longs only", "Rs358.32", "Rs370.04", "Rs5.86", "375.90", "too tight to survive the spread"):
             self.assertIn(must, low)
         for never in ("\u2014", "tick " + "by tick", "real " + "time", "pro" + "fit"):
             self.assertNotIn(never, low)

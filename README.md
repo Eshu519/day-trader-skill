@@ -106,9 +106,9 @@ An example, the trade in the reel: Tesla, Monday October 19 2026, real data.
    the same rule on those 59 real sessions: it fired 33 times, 13 hit the
    target, 15 the stop, 5 neither. Its verdict: close to a coin flip. That is
    the point of looking before you risk a dollar.
-6. **`/trader-budget`** with a $5,000 account and a $50 max loss per trade:
-   50 / 5.86 = 8 shares ($2,913.44). If the stop fills at 358.32, the loss is
-   $46.88. It writes one bracket order: buy 8 TSLA, stop-loss 358.32,
+6. **`/trader-budget`** with a Rs5,000 account and a Rs50 max loss per trade:
+   50 / 5.86 = 8 shares (Rs2,913.44). If the stop fills at 358.32, the loss is
+   Rs46.88. It writes one bracket order: buy 8 TSLA, stop-loss 358.32,
    take-profit 370.04.
 7. **`/trader-risk`** checks it against your limits: the max loss, the daily
    loss limit, trades per day, reward to risk, the entry window, position

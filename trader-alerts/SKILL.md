@@ -124,7 +124,7 @@ the real 10:52 quote, 366.48, between the stop and the target:
 
 ```
 NYSE OPEN (2026-10-19 10:53 New York, regular session).
-Nothing hit. 3 rule(s) watched today, TSLA $366.48.
+Nothing hit. 3 rule(s) watched today, TSLA Rs366.48.
 ```
 
 At 3:55 PM:
