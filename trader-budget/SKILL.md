@@ -70,7 +70,9 @@ python3 "${CLAUDE_SKILL_DIR}/size.py" --write
 ```
 
 Whole shares only: Alpaca takes no fractions in a bracket order. The size is
-the smallest of four limits:
+the smallest of the account limits below. When `broker` is `megabull`, the
+per-order API limit also applies: MegaBull requires fewer than 10,000 shares,
+so sizing caps each order at 9,999 shares.
 
 | limit | shares |
 | --- | --- |
@@ -78,6 +80,7 @@ the smallest of four limits:
 | position cap | budget x `max_position_pct` / entry |
 | max order | `max_order_inr` / entry |
 | cash | (budget minus the cash buffer) / entry; when `trader/portfolio.json` holds less than that, the buffer is taken from the actual cash instead, so the size never exceeds what you have |
+| MegaBull per-order limit | 9,999 shares (only when `broker` is `megabull`) |
 
 The entry it sizes at: the limit price with `--limit`. For a market order, the
 plan's entry, or the price in `trader/prices.json` if it is fresh (under 15
@@ -92,7 +95,7 @@ the reason to the user in one line.
 
 ## Step 3: show the user
 
-Show the four limits, which one decided the size, the shares, the dollars
+Show the applicable limits, which one decided the size, the shares, the dollars
 and the max loss at the stop. Say plainly that a stop is an order, not a
 promise: in a fast market it can fill below the stop. Then hand over to
 `/trader-risk`.

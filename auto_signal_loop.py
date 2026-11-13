@@ -1,12 +1,32 @@
 #!/usr/bin/env python3
-"""Auto-signal loop: trader-scanner -> trader-news -> trader-exit -> trader-budget -> trader-risk -> Groww broker.
-Runs every 10 min until interrupted. Uses skills only; places orders via Groww after approval gates."""
+"""Auto-signal loop: trader-scanner -> trader-news -> trader-exit -> trader-budget -> trader-risk -> broker.
+Runs every 10 min until interrupted. Uses skills only; places orders via the broker in trader/config.json
+("megabull" paper by default, or "groww") after approval gates."""
 import time, subprocess, sys, os, json
 sys.path.insert(0, os.path.dirname(__file__))
 
 INTERVAL = 600  # 10 min
 SKILL_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON = sys.executable
+
+
+def current_broker():
+    """The broker named in trader/config.json (default: megabull, the paper account)."""
+    try:
+        with open("trader/config.json", "r") as f:
+            return str(json.load(f).get("broker", "megabull")).lower()
+    except Exception:
+        return "megabull"
+
+
+def load_connector(name):
+    import importlib.util
+    path = os.path.join(SKILL_DIR, "trader-megabull" if name == "megabull" else "trader-broker",
+                        "megabull_connector.py" if name == "megabull" else "groww_connector.py")
+    spec = importlib.util.spec_from_file_location(name + "_connector", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -61,37 +81,35 @@ def add_alerts():
     result = run(cmd)
     return result.returncode == 0, result.stdout
 
-def fetch_groww_balance():
-    """Fetch available balance from Groww and write to trader/portfolio.json."""
-    sys.path.insert(0, SKILL_DIR)
-    import importlib.util
-    spec = importlib.util.spec_from_file_location('groww_connector', f'{SKILL_DIR}/trader-broker/groww_connector.py')
-    groww_connector = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(groww_connector)
-    
-    from growwapi import GrowwAPI
-    groww = groww_connector.groww
-    
+def fetch_balance():
+    """Fetch available balance from the configured broker and write to trader/portfolio.json."""
+    broker = current_broker()
     try:
-        margin = groww.get_available_margin_details()
-        # Extract available cash for equity CNC
-        equity_margin = margin.get("equity_margin_details", {})
-        available_cash = equity_margin.get("cnc_balance_available", 0)
-        
-        # Write to trader/portfolio.json
+        if broker == "megabull":
+            mb = load_connector("megabull")
+            bal = mb.get_balance()
+            available_cash = float(bal.get("virtualMoneyLeft") or 0)
+            source = "megabull"
+        else:
+            gw = load_connector("groww")
+            margin = gw.groww.get_available_margin_details()
+            equity_margin = margin.get("equity_margin_details", {})
+            available_cash = equity_margin.get("cnc_balance_available", 0)
+            source = "groww"
+
         portfolio = {
             "cash": available_cash,
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "source": "groww"
+            "source": source
         }
         os.makedirs("trader", exist_ok=True)
         with open("trader/portfolio.json", "w") as f:
             json.dump(portfolio, f, indent=2)
-        
-        print(f"Fetched Groww balance: Rs{available_cash:.2f} available for CNC")
+
+        print(f"Fetched {source} balance: Rs{available_cash:.2f} available")
         return True, available_cash
     except Exception as e:
-        print(f"Failed to fetch Groww balance: {type(e).__name__}: {e}")
+        print(f"Failed to fetch {broker} balance: {type(e).__name__}: {e}")
         return False, 0
 
 def run_budget():
@@ -113,9 +131,9 @@ def run_risk():
     result = run(cmd)
     return result.returncode == 0, result.stdout
 
-def place_order_groww():
-    """Place order via Groww connector."""
-    # Read the proposed order from trader/orders.json
+def place_order():
+    """Place order via the configured broker (megabull paper or groww)."""
+    broker = current_broker()
     try:
         with open("trader/orders.json", "r") as f:
             orders_data = json.load(f)
@@ -125,26 +143,35 @@ def place_order_groww():
         order = orders[0]  # Take first order
     except Exception as e:
         return False, f"Failed to read orders: {e}"
-    
-    # Convert to Groww ticket format
+
+    if broker == "megabull":
+        ticket = {
+            'symbol': order.get('symbol'),
+            'qty': int(float(order.get('qty', 0))),
+            'side': order.get('side', 'buy').upper(),
+            'type': order.get('type', 'market'),
+            'limit_price': order.get('limit_price'),
+            'trigger_price': order.get('trigger_price') or order.get('stop_price'),
+            'product': 'MIS',
+        }
+        try:
+            mb = load_connector("megabull")
+            result = mb.place_order(ticket, product='MIS')
+            return True, json.dumps(result, indent=2)
+        except Exception as e:
+            return False, f"MegaBull order failed: {type(e).__name__}: {e}"
+
     ticket = {
         'symbol': order.get('symbol'),
-        'qty': int(order.get('qty', 0)),
+        'qty': int(float(order.get('qty', 0))),
         'side': order.get('side', 'buy').upper(),
         'order_type': order.get('type', 'market').upper(),
         'price': float(order.get('limit_price', 0)) if order.get('limit_price') else 0,
         'product': 'CNC'
     }
-    
-    # Import and use Groww connector
-    sys.path.insert(0, SKILL_DIR)
-    import importlib.util
-    spec = importlib.util.spec_from_file_location('groww_connector', f'{SKILL_DIR}/trader-broker/groww_connector.py')
-    groww_connector = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(groww_connector)
-    
     try:
-        result = groww_connector.place_order(ticket)
+        gw = load_connector("groww")
+        result = gw.place_order(ticket)
         return True, json.dumps(result, indent=2)
     except Exception as e:
         return False, f"Groww order failed: {type(e).__name__}: {e}"
@@ -206,9 +233,10 @@ while True:
         if alerts_ok:
             print(alerts_out.strip())
         
-        # Fetch Groww balance before budget sizing
-        print("Fetching Groww balance...")
-        balance_ok, balance = fetch_groww_balance()
+        # Fetch balance from the configured broker before budget sizing
+        broker = current_broker()
+        print(f"Fetching {broker} balance...")
+        balance_ok, balance = fetch_balance()
         if not balance_ok:
             print("Failed to fetch balance, using config budget")
         
@@ -242,24 +270,24 @@ while True:
             time.sleep(INTERVAL)
             continue
         
-        # Place order via Groww
-        print("Placing order via Groww...")
-        groww_ok, groww_out = place_order_groww()
-        if groww_ok:
-            print(f"Groww order placed: {groww_out}")
-            # Extract broker order ID
+        # Place order via the configured broker
+        print(f"Placing order via {broker}...")
+        order_ok, order_out = place_order()
+        if order_ok:
+            print(f"{broker} order placed: {order_out}")
+            # Extract broker order ID (groww_order_id for Groww, id for MegaBull)
             try:
-                groww_result = json.loads(groww_out)
-                broker_id = groww_result.get("groww_order_id", "")
-            except:
+                order_result = json.loads(order_out)
+                broker_id = order_result.get("groww_order_id") or order_result.get("id") or ""
+            except Exception:
                 broker_id = ""
-            
+
             # Record result
             record_ok, record_out = record_broker_result(True, broker_id)
             if record_ok:
                 print("Order recorded in broker log")
         else:
-            print(f"Groww order failed: {groww_out}")
+            print(f"{broker} order failed: {order_out}")
             record_broker_result(False, "")
         
         # Log success
@@ -274,7 +302,7 @@ while True:
             "alerts_added": alerts_ok,
             "budget_done": budget_ok,
             "risk_passed": risk_ok,
-            "order_placed": groww_ok
+            "order_placed": order_ok
         }
     else:
         print("No signals found")

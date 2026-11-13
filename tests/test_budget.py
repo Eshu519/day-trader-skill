@@ -170,6 +170,20 @@ class PlanRules(unittest.TestCase):
         s = size.size_trade(plan(), cfg(max_loss_per_trade_inr=100), today=TODAY)
         self.assertEqual((s["qty"], s["bound_by"]), (10, "position cap"))
 
+    def test_megabull_sizing_respects_strict_10000_share_limit(self):
+        rules = cfg(broker="megabull", budget=1_000_000, cash_buffer_pct=0, max_position_pct=100,
+                    max_order_inr=1_000_000, max_loss_per_trade_inr=100_000)
+        s = size.size_trade(plan(entry=12.97, stop=12.84, target=13.10), rules, today=TODAY)
+        self.assertEqual((s["qty"], s["bound_by"]), (9999, "MegaBull max"))
+        self.assertEqual(size.bracket_order(s)["qty"], "9999")
+
+    def test_megabull_share_limit_does_not_change_other_brokers(self):
+        rules = cfg(broker="alpaca", budget=1_000_000, cash_buffer_pct=0, max_position_pct=100,
+                    max_order_inr=1_000_000, max_loss_per_trade_inr=100_000)
+        s = size.size_trade(plan(entry=12.97, stop=12.84, target=13.10), rules, today=TODAY)
+        self.assertGreater(s["qty"], 9999)
+        self.assertNotIn("MegaBull max", [limit["name"] for limit in s["limits"]])
+
     def test_a_fresh_higher_price_means_a_bigger_risk(self):
         s = size.size_trade(plan(), cfg(min_reward_risk=0), price=366.475, today=TODAY)
         self.assertEqual((s["entry"], s["entry_from"], s["risk_per_share"]), (366.48, "price", 8.16))

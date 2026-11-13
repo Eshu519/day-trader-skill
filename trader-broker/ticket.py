@@ -5,7 +5,8 @@ This tool never talks to a broker and never places anything. It does its
 work around the one moment that matters, your yes:
 
   show      renders each proposed order as a plain-English ticket plus the
-            exact JSON Claude will send to Alpaca's place_stock_order tool.
+            exact JSON Claude will send to the broker (Alpaca's place_stock_order,
+            or the MegaBull order payload when "broker": "megabull").
             A bracket order shows its stop-loss, take-profit and the max loss
             at the stop. An order is READY only if trader-risk passed THIS
             exact order today (matched by fingerprint) and nobody has decided
@@ -45,6 +46,29 @@ ALPACA_FIELDS = ("symbol", "side", "qty", "notional", "type", "time_in_force", "
                  "stop_price", "trail_price", "trail_percent", "extended_hours", "client_order_id",
                  "order_class", "take_profit_limit_price", "stop_loss_stop_price",
                  "stop_loss_limit_price", "advanced_instructions")
+BROKER_NAMES = {"alpaca": "Alpaca", "ibkr": "Interactive Brokers", "groww": "Groww", "megabull": "MegaBull (paper)"}
+
+
+def broker_name(cfg):
+    b = str((cfg or {}).get("broker", "alpaca")).lower()
+    return BROKER_NAMES.get(b, b.capitalize())
+
+
+def broker_key(cfg):
+    return str((cfg or {}).get("broker", "alpaca")).lower()
+
+
+def megabull_payload(order):
+    """The MegaBull OrderRequest for this order (instrumentToken resolved by the connector).
+    Bracket legs are not sent: MegaBull has no bracket orders."""
+    out = {"symbol": order.get("symbol"), "qty": int(float(order.get("qty", 0) or 0)),
+           "side": str(order.get("side", "")).upper(),
+           "type": str(order.get("type", "market")).upper()}
+    if order.get("limit_price") is not None:
+        out["limit_price"] = order["limit_price"]
+    if order.get("stop_price") is not None:
+        out["trigger_price"] = order["stop_price"]
+    return out
 STRING_FIELDS = ("qty", "notional", "limit_price", "stop_price", "trail_price", "trail_percent",
                  "take_profit_limit_price", "stop_loss_stop_price", "stop_loss_limit_price")
 TIF_WORDS = {"day": "good for today", "gtc": "good until canceled", "opg": "at the open",
@@ -320,7 +344,7 @@ def status_of(order, risk, state, today):
     if rec:
         st = rec.get("status")
         if st == "approved":
-            return False, "APPROVED by you at %s, waiting for the place_stock_order call" % rec.get("at"), rv
+            return False, "APPROVED by you at %s, waiting for the broker call" % rec.get("at"), rv
         return False, "DONE: %s at %s" % (st, rec.get("at")), rv
     return True, "READY: trader-risk PASS, waiting for your yes", rv
 
@@ -336,10 +360,10 @@ def kind_of(order, rv):
 
 def render(order, idx, total, cfg, risk, state, today):
     ready, label, rv = status_of(order, risk, state, today)
-    broker = str(cfg.get("broker", "alpaca")).lower()
+    broker = broker_key(cfg)
     paper = cfg.get("paper", True)
     acct = "PAPER account" if paper else "LIVE ACCOUNT, REAL MONEY"
-    lines = ["ORDER %d of %d, %s, %s" % (idx, total, acct, "Interactive Brokers" if broker == "ibkr" else "Alpaca")]
+    lines = ["ORDER %d of %d, %s, %s" % (idx, total, acct, broker_name(cfg))]
     for part in plain_parts(order):
         lines.append("  " + part)
     if order.get("why"):
@@ -350,6 +374,15 @@ def render(order, idx, total, cfg, risk, state, today):
     if broker == "ibkr":
         lines.append("  Claude drafts this with the Interactive Brokers connector. IBKR sends it to your")
         lines.append("  IBKR account, and it only goes to the market after you approve it there.")
+    elif broker == "megabull":
+        lines.append("  Claude will place this on MegaBull (paper, virtual money) with:")
+        for l in json.dumps(megabull_payload(order), indent=2).splitlines():
+            lines.append("    " + l)
+        lines.append("  MegaBull has no bracket orders: the stop-loss and take-profit are NOT sent.")
+        lines.append("  trader-alerts watches them; MIS positions are squared off automatically at 3:40 PM IST.")
+    elif broker == "groww":
+        lines.append("  Claude will place this on Groww with the groww_connector (symbol without the .NS suffix).")
+        lines.append("  Groww has no bracket orders either: the stop-loss and take-profit are NOT sent.")
     else:
         lines.append("  Claude will call place_stock_order with exactly:")
         for l in json.dumps(tool_input(order), indent=2).splitlines():
@@ -359,18 +392,23 @@ def render(order, idx, total, cfg, risk, state, today):
             lines.append("  that cancel each other: when one fills, the other is canceled.")
     if ready:
         lines.append("  Reply \"yes\" to place this one order, or \"no\" to skip it.")
-        if broker != "ibkr":
+        if broker == "alpaca":
             lines.append("  Claude's own card then asks again: Allow once places it, Deny stops it.")
+        elif broker == "megabull":
+            lines.append("  Then: python3 trader-megabull/megabull.py place --index %d" % idx)
     return "\n".join(lines), ready
 
 
 def ticket_json(order, idx, cfg, risk, state, today):
     ready, label, rv = status_of(order, risk, state, today)
     loss, stop = max_loss(order)
+    broker = broker_key(cfg)
+    tool = {"ibkr": "ibkr_draft", "megabull": "megabull_place_order", "groww": "groww_place_order"}.get(broker, "place_stock_order")
+    payload = megabull_payload(order) if broker == "megabull" else tool_input(order)
     return {"index": idx, "ready": ready, "status": label, "plain": plain(order),
             "fingerprint": fingerprint(order), "paper": bool(cfg.get("paper", True)),
-            "broker": cfg.get("broker", "alpaca"), "tool": "place_stock_order",
-            "tool_input": tool_input(order), "why": order.get("why", ""),
+            "broker": cfg.get("broker", "alpaca"), "tool": tool,
+            "tool_input": payload, "why": order.get("why", ""),
             "bracket": is_bracket(order), "max_loss": loss, "stop": stop}
 
 
@@ -501,8 +539,16 @@ def cmd_approve(a):
     state.setdefault("orders", []).append(rec)
     write_json(a.state, state)
     print("Recorded your yes for order %d: %s." % (a.index, plain(order)))
-    if str(cfg.get("broker", "alpaca")).lower() == "ibkr":
+    broker = broker_key(cfg)
+    if broker == "ibkr":
         print("Now draft it with the Interactive Brokers connector; approve it in your IBKR account.")
+    elif broker == "megabull":
+        print("Now place it on MegaBull (paper):")
+        print("  python3 trader-megabull/megabull.py place --index %d" % a.index)
+        print("It re-checks this approval, sends the order, and records the result here.")
+    elif broker == "groww":
+        print("Now place it with the Groww connector (trader-broker/groww_connector.py), then record it:")
+        print("  ticket.py result --index %d --status placed|denied|failed" % a.index)
     else:
         print("Now call place_stock_order with exactly:")
         print(json.dumps(tool_input(order), indent=2))
@@ -607,9 +653,9 @@ def cmd_flatten(a):
     print("  1. trader-risk: check.py. A sell that only closes what you hold is never blocked by the daily")
     print("     limits or the entry window.")
     print("  2. ticket.py show, then the user's yes for this one order.")
-    print("  3. If the bracket's stop-loss and take-profit are still open, Alpaca holds these shares for them")
-    print("     and rejects a new sell. Cancel them first: get_orders (status open, nested true), then")
-    print("     cancel_order_by_id for each open leg (Needs approval). Then place_stock_order with the ticket.")
+    print("  3. If the bracket's stop-loss and take-profit are still open at the broker, cancel them first")
+    print("     (Alpaca: get_orders then cancel_order_by_id; MegaBull/Groww have no bracket legs to cancel).")
+    print("     Then place the sell with the ticket.")
     return 0
 
 

@@ -85,6 +85,7 @@ DEFAULTS = {
 }
 EPS = 1e-9
 FRESH_MINUTES = 15
+MEGABULL_MAX_QTY = 9999
 SETUP_WORDS = {"orb": "opening-range breakout", "flag": "flag", "bounce": "oversold bounce"}
 
 
@@ -371,6 +372,9 @@ def size_trade(plan, cfg, budget=None, limit=None, price=None, cash=None, today=
                        "how": "%s / %s" % (money(max_order), _price(ref))})
     limits.append({"name": "cash", "inr": available, "per": ref, "shares": shares_for(available, ref),
                    "how": "%s = %s / %s" % (cash_note, money(available), _price(ref))})
+    if str(c.get("broker", "")).lower() == "megabull":
+        limits.append({"name": "MegaBull max", "shares": MEGABULL_MAX_QTY,
+                       "how": "MegaBull allows fewer than 10,000 shares per order"})
 
     qty = max(0, min(l["shares"] for l in limits))
     bound = [l["name"] for l in limits if l["shares"] == qty]
@@ -419,7 +423,8 @@ def bracket_order(s):
     why = ("%s on %s: %d shares, bound by your %s (%d x %s = %s at the stop)"
            % (setup, s["symbol"], s["qty"], {"max loss": "%s max loss per trade" % money(s["max_loss_per_trade_inr"] or 0),
                                              "position cap": "position cap", "max order": "max order",
-                                             "cash": "cash after the buffer"}[s["bound_by"]],
+                                             "cash": "cash after the buffer",
+                                             "MegaBull max": "MegaBull's 9,999-share per-order limit"}[s["bound_by"]],
               s["qty"], _price(s["risk_per_share"]), money(s["max_loss"])))
     o.update({
         "order_class": "bracket",
