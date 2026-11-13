@@ -3,6 +3,7 @@
 Uses environment variables: GROWW_API_KEY, GROWW_SECRET_KEY, GROWW_API_TOKEN, GROWW_TOTP."""
 import os
 import json
+import math
 from growwapi import GrowwAPI
 
 # Load credentials from environment
@@ -133,6 +134,27 @@ def get_orders():
     if not groww:
         _get_token()
     return groww.get_order_list(segment=SEGMENT_CASH)
+
+def get_ltp(symbol):
+    """Fetch and validate the current NSE cash-segment last traded price."""
+    global groww
+    if not groww:
+        _get_token()
+    symbol = str(symbol or "").strip().upper()
+    if symbol.endswith((".BSE", ".BO")):
+        raise ValueError("Groww LTP lookup supports NSE symbols only: %s" % symbol)
+    for suffix in (".NSE", ".NS"):
+        if symbol.endswith(suffix):
+            symbol = symbol[:-len(suffix)]
+            break
+    quote = groww.get_quote(exchange=EXCHANGE_NSE, segment=SEGMENT_CASH, trading_symbol=symbol)
+    try:
+        price = float(quote["last_price"])
+    except (TypeError, KeyError, ValueError):
+        raise ValueError("Groww quote response has no valid last_price: %r" % (quote,))
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("Groww returned an invalid last_price: %r" % (quote,))
+    return price
 
 def get_positions():
     """Get current positions."""

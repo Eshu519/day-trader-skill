@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Auto-signal loop: trader-scanner -> trader-news -> trader-exit -> trader-budget -> trader-risk -> broker.
 Runs every 10 min until interrupted. Places orders via the broker in trader/config.json
-("megabull" paper by default, or "groww") after risk checks."""
-import time, subprocess, sys, os, json
+("megabull" paper by default, or "groww") after risk checks. Daily scanner closes select
+signals; the broker's current LTP is used for the plan entry and sizing."""
+import datetime, time, subprocess, sys, os, json
+import math
 sys.path.insert(0, os.path.dirname(__file__))
 
 INTERVAL = 600  # 10 min
@@ -126,6 +128,59 @@ def has_in_progress_order(symbol, broker=None):
             if record_matches_symbol(record, wanted, instrument_token) and position_is_open(record):
                 return True, "an open broker %s" % description
     return False, ""
+
+
+def get_broker_ltp(symbol, broker=None):
+    broker = (broker or current_broker()).lower()
+    if broker == "megabull":
+        connector = load_connector("megabull")
+        token = connector.resolve_token(symbol)
+        return connector.current_ltp_price(token)
+    if broker == "groww":
+        connector = load_connector("groww")
+        return connector.get_ltp(symbol)
+    raise ValueError("live price lookup does not support broker %r" % broker)
+
+
+def record_broker_ltp(symbol, price, broker, path="trader/prices.json"):
+    """Merge a broker quote into the prices file as a fresh sizing/risk input."""
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            doc = json.load(f)
+    else:
+        doc = {}
+    if not isinstance(doc, dict):
+        raise ValueError("%s must contain a JSON object" % path)
+    prices = doc.setdefault("prices", {})
+    detail = doc.setdefault("detail", {})
+    if not isinstance(prices, dict) or not isinstance(detail, dict):
+        raise ValueError("%s must contain object-valued prices and detail fields" % path)
+
+    try:
+        price = float(price)
+    except (TypeError, ValueError):
+        raise ValueError("broker returned an invalid LTP for %s: %r" % (symbol, price))
+    if not math.isfinite(price) or price <= 0:
+        raise ValueError("broker returned an invalid LTP for %s: %r" % (symbol, price))
+
+    fetched = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+    fetched = fetched.replace("+00:00", "Z")
+    key = str(symbol).upper()
+    has_existing_prices = bool(prices)
+    prices[key] = price
+    detail[key] = {"time": fetched, "fetched": fetched, "source": broker}
+    if not has_existing_prices and "as_of" not in doc:
+        doc["as_of"] = fetched
+    temp = path + ".tmp"
+    with open(temp, "w") as f:
+        json.dump(doc, f, indent=2)
+    os.replace(temp, path)
+
+
+def refresh_signal_price(symbol, broker):
+    price = get_broker_ltp(symbol, broker)
+    record_broker_ltp(symbol, price, broker)
+    return price
 
 
 def run(cmd):
@@ -304,7 +359,8 @@ def main():
             price = best["price"]
             rsi = best.get("rsi", 0)
             setups = best.get("setups", [])
-            print(f"\nBest signal: {symbol} @ {price} (RSI {rsi}, setups: {setups})")
+            print("\nBest signal: %s (scanner daily close Rs%.2f; RSI %s, setups: %s)"
+                  % (symbol, price, rsi, setups))
 
             broker = current_broker()
             try:
@@ -332,6 +388,22 @@ def main():
             print("Checking news...")
             news_out, news_ok = check_news(symbol)
             print(news_out.strip())
+
+            signal_price = price
+            try:
+                price = refresh_signal_price(symbol, broker)
+            except Exception as e:
+                print("Could not get a fresh %s price for %s; skipping this cycle: %s: %s"
+                      % (broker, symbol, type(e).__name__, e))
+                log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol,
+                             "status": "live_price_check_failed"}
+                os.makedirs("trader/state", exist_ok=True)
+                with open("trader/state/auto.json", "a") as f:
+                    f.write(json.dumps(log_entry) + "\n")
+                time.sleep(INTERVAL)
+                continue
+            print("Scanner daily close: Rs%.2f; current %s LTP: Rs%.2f. Using LTP for plan and sizing."
+                  % (signal_price, broker, price))
 
             print("Creating exit plan...")
             plan_ok, plan_out = create_plan(symbol, price)
@@ -405,6 +477,7 @@ def main():
                 "t": time.strftime("%Y-%m-%d %H:%M"),
                 "symbol": symbol,
                 "price": price,
+                "signal_price": signal_price,
                 "rsi": rsi,
                 "setups": setups,
                 "news_checked": news_ok,
