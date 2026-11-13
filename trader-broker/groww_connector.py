@@ -127,6 +127,13 @@ def get_order_status(order_id):
         _get_token()
     return groww.get_order_status(order_id)
 
+def get_orders():
+    """Get cash-segment orders for checking pending orders."""
+    global groww
+    if not groww:
+        _get_token()
+    return groww.get_order_list(segment=SEGMENT_CASH)
+
 def get_positions():
     """Get current positions."""
     global groww

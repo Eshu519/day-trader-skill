@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Auto-signal loop: trader-scanner -> trader-news -> trader-exit -> trader-budget -> trader-risk -> broker.
-Runs every 10 min until interrupted. Uses skills only; places orders via the broker in trader/config.json
-("megabull" paper by default, or "groww") after approval gates."""
+Runs every 10 min until interrupted. Places orders via the broker in trader/config.json
+("megabull" paper by default, or "groww") after risk checks."""
 import time, subprocess, sys, os, json
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -27,6 +27,106 @@ def load_connector(name):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def normalize_symbol(value):
+    symbol = str(value or "").strip().upper()
+    for suffix in (".NSE", ".BSE", ".NS", ".BO"):
+        if symbol.endswith(suffix):
+            return symbol[:-len(suffix)]
+    return symbol
+
+
+def response_records(data, keys, description):
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in keys:
+            if key not in data:
+                continue
+            value = data[key]
+            if isinstance(value, list):
+                return value
+            if isinstance(value, dict):
+                return response_records(value, keys, description)
+            raise ValueError("%s response field %s is not a list" % (description, key))
+        for key in ("data", "result"):
+            if isinstance(data.get(key), (dict, list)):
+                return response_records(data[key], keys, description)
+        if any(data.get(key) for key in ("symbol", "trading_symbol", "tradingSymbol",
+                                         "instrumentName", "instrument_name", "ticker")):
+            return [data]
+        if not data:
+            return []
+    raise ValueError("unexpected %s response: %r" % (description, data))
+
+
+def record_symbol(record):
+    for key in ("symbol", "trading_symbol", "tradingSymbol", "instrumentName",
+                "instrument_name", "ticker", "name"):
+        if record.get(key):
+            return normalize_symbol(record[key])
+    return ""
+
+
+def record_matches_symbol(record, wanted, instrument_token=None):
+    if record_symbol(record) == wanted:
+        return True
+    token = record.get("instrumentToken") or record.get("instrument_token")
+    return instrument_token is not None and str(token) == str(instrument_token)
+
+
+def order_is_active(order):
+    status = str(order.get("status") or order.get("order_status") or order.get("orderStatus") or "").upper()
+    terminal = {"COMPLETE", "COMPLETED", "FILLED", "TRADED", "EXECUTED",
+                "CANCELLED", "CANCELED", "REJECTED", "EXPIRED", "FAILED"}
+    return status not in terminal
+
+
+def position_is_open(position):
+    for key in ("net_quantity", "netQuantity", "net_qty", "netQty", "qty", "quantity"):
+        if key in position:
+            try:
+                return float(position[key] or 0) != 0
+            except (TypeError, ValueError):
+                return True
+    return True
+
+
+def has_in_progress_order(symbol, broker=None):
+    """Return whether the configured broker has an active order or position for this symbol."""
+    broker = (broker or current_broker()).lower()
+    if broker == "megabull":
+        connector = load_connector("megabull")
+        instrument_token = connector.resolve_token(symbol)
+        orders = connector.get_orders()
+        positions = connector.get_positions()
+        holdings = connector.get_holdings()
+        active_orders = response_records(orders, ("open", "orders", "order_list"), "MegaBull orders")
+    elif broker == "groww":
+        connector = load_connector("groww")
+        instrument_token = None
+        orders = connector.get_orders()
+        positions = connector.get_positions()
+        holdings = connector.get_holdings()
+        active_orders = response_records(orders, ("order_list", "orders", "open"), "Groww orders")
+    else:
+        raise ValueError("duplicate-order check does not support broker %r" % broker)
+
+    wanted = normalize_symbol(symbol)
+    for order in active_orders:
+        if record_matches_symbol(order, wanted, instrument_token) and order_is_active(order):
+            return True, "an active broker order"
+
+    for description, response_name, data, keys in (
+            ("position", "positions", positions, ("positions", "position_list", "net_positions")),
+            ("holding", "holdings", holdings, ("holdings", "holding_list"))):
+        records = response_records(data, keys, "%s %s" % (broker, response_name))
+        for record in records:
+            if record_matches_symbol(record, wanted, instrument_token) and position_is_open(record):
+                return True, "an open broker %s" % description
+    return False, ""
+
 
 def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -189,132 +289,142 @@ def record_broker_result(success, broker_id, filled_qty=0, filled_price=0):
     result = run(cmd)
     return result.returncode == 0, result.stdout
 
-while True:
-    print(f"\n=== Auto-signal loop: {time.strftime('%Y-%m-%d %H:%M')} ===")
-    
-    # Scan India universe only (skip US)
-    print("Scanning India universe...")
-    india_hits = scan_universe("trader/universe_india.txt", limit=500)
-    print(f"  India hits: {len(india_hits)}")
-    
-    # Pick best from India only
-    best = pick_best_hit(india_hits)
-    
-    if best:
-        symbol = best["symbol"]
-        price = best["price"]
-        rsi = best.get("rsi", 0)
-        setups = best.get("setups", [])
-        print(f"\nBest signal: {symbol} @ {price} (RSI {rsi}, setups: {setups})")
-        
-        # Check news
-        print("Checking news...")
-        news_out, news_ok = check_news(symbol)
-        print(news_out.strip())
-        
-        # Create plan
-        print("Creating exit plan...")
-        plan_ok, plan_out = create_plan(symbol, price)
-        if plan_ok:
-            print(plan_out.strip())
-        else:
-            print(f"Plan failed: {plan_out}")
-            log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol, "status": "plan_failed"}
-            os.makedirs("trader/state", exist_ok=True)
-            with open("trader/state/auto.json", "a") as f:
-                f.write(json.dumps(log_entry) + "\n")
-            print(f"Sleeping {INTERVAL}s...")
-            time.sleep(INTERVAL)
-            continue
-        
-        # Add alerts
-        print("Adding alerts...")
-        alerts_ok, alerts_out = add_alerts()
-        if alerts_ok:
-            print(alerts_out.strip())
-        
-        # Fetch balance from the configured broker before budget sizing
-        broker = current_broker()
-        print(f"Fetching {broker} balance...")
-        balance_ok, balance = fetch_balance()
-        if not balance_ok:
-            print("Failed to fetch balance, using config budget")
-        
-        # Run budget sizing
-        print("Running budget sizing...")
-        budget_ok, budget_out = run_budget()
-        if budget_ok:
-            print(budget_out.strip())
-        else:
-            print(f"Budget failed: {budget_out}")
-            log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol, "status": "budget_failed"}
-            os.makedirs("trader/state", exist_ok=True)
-            with open("trader/state/auto.json", "a") as f:
-                f.write(json.dumps(log_entry) + "\n")
-            print(f"Sleeping {INTERVAL}s...")
-            time.sleep(INTERVAL)
-            continue
-        
-        # Run risk check
-        print("Running risk check...")
-        risk_ok, risk_out = run_risk()
-        if risk_ok:
-            print(risk_out.strip())
-        else:
-            print(f"Risk check blocked: {risk_out}")
-            log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol, "status": "risk_blocked"}
-            os.makedirs("trader/state", exist_ok=True)
-            with open("trader/state/auto.json", "a") as f:
-                f.write(json.dumps(log_entry) + "\n")
-            print(f"Sleeping {INTERVAL}s...")
-            time.sleep(INTERVAL)
-            continue
-        
-        # Place order via the configured broker
-        print(f"Placing order via {broker}...")
-        order_ok, order_out = place_order()
-        if order_ok:
-            print(f"{broker} order placed: {order_out}")
-            # Extract broker order ID (groww_order_id for Groww, id for MegaBull)
-            try:
-                order_result = json.loads(order_out)
-                broker_id = order_result.get("groww_order_id") or order_result.get("id") or ""
-            except Exception:
-                broker_id = ""
+def main():
+    while True:
+        print(f"\n=== Auto-signal loop: {time.strftime('%Y-%m-%d %H:%M')} ===")
 
-            # Record result
-            record_ok, record_out = record_broker_result(True, broker_id)
-            if record_ok:
-                print("Order recorded in broker log")
+        print("Scanning India universe...")
+        india_hits = scan_universe("trader/universe_india.txt", limit=500)
+        print(f"  India hits: {len(india_hits)}")
+
+        best = pick_best_hit(india_hits)
+
+        if best:
+            symbol = best["symbol"]
+            price = best["price"]
+            rsi = best.get("rsi", 0)
+            setups = best.get("setups", [])
+            print(f"\nBest signal: {symbol} @ {price} (RSI {rsi}, setups: {setups})")
+
+            broker = current_broker()
+            try:
+                active, reason = has_in_progress_order(symbol, broker)
+            except Exception as e:
+                print("Could not verify existing %s orders/positions for %s; skipping this cycle: %s: %s"
+                      % (broker, symbol, type(e).__name__, e))
+                log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol,
+                             "status": "active_order_check_failed"}
+                os.makedirs("trader/state", exist_ok=True)
+                with open("trader/state/auto.json", "a") as f:
+                    f.write(json.dumps(log_entry) + "\n")
+                time.sleep(INTERVAL)
+                continue
+            if active:
+                print("Skipping %s: %s already exists." % (symbol, reason))
+                log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol,
+                             "status": "active_order_skipped", "reason": reason}
+                os.makedirs("trader/state", exist_ok=True)
+                with open("trader/state/auto.json", "a") as f:
+                    f.write(json.dumps(log_entry) + "\n")
+                time.sleep(INTERVAL)
+                continue
+
+            print("Checking news...")
+            news_out, news_ok = check_news(symbol)
+            print(news_out.strip())
+
+            print("Creating exit plan...")
+            plan_ok, plan_out = create_plan(symbol, price)
+            if plan_ok:
+                print(plan_out.strip())
+            else:
+                print(f"Plan failed: {plan_out}")
+                log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol,
+                             "status": "plan_failed"}
+                os.makedirs("trader/state", exist_ok=True)
+                with open("trader/state/auto.json", "a") as f:
+                    f.write(json.dumps(log_entry) + "\n")
+                time.sleep(INTERVAL)
+                continue
+
+            print("Adding alerts...")
+            alerts_ok, alerts_out = add_alerts()
+            if alerts_ok:
+                print(alerts_out.strip())
+
+            print(f"Fetching {broker} balance...")
+            balance_ok, balance = fetch_balance()
+            if not balance_ok:
+                print("Failed to fetch balance, using config budget")
+
+            print("Running budget sizing...")
+            budget_ok, budget_out = run_budget()
+            if budget_ok:
+                print(budget_out.strip())
+            else:
+                print(f"Budget failed: {budget_out}")
+                log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol,
+                             "status": "budget_failed"}
+                os.makedirs("trader/state", exist_ok=True)
+                with open("trader/state/auto.json", "a") as f:
+                    f.write(json.dumps(log_entry) + "\n")
+                time.sleep(INTERVAL)
+                continue
+
+            print("Running risk check...")
+            risk_ok, risk_out = run_risk()
+            if risk_ok:
+                print(risk_out.strip())
+            else:
+                print(f"Risk check blocked: {risk_out}")
+                log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "symbol": symbol,
+                             "status": "risk_blocked"}
+                os.makedirs("trader/state", exist_ok=True)
+                with open("trader/state/auto.json", "a") as f:
+                    f.write(json.dumps(log_entry) + "\n")
+                time.sleep(INTERVAL)
+                continue
+
+            print(f"Placing order via {broker}...")
+            order_ok, order_out = place_order()
+            if order_ok:
+                print(f"{broker} order placed: {order_out}")
+                try:
+                    order_result = json.loads(order_out)
+                    broker_id = order_result.get("groww_order_id") or order_result.get("id") or ""
+                except Exception:
+                    broker_id = ""
+                record_ok, record_out = record_broker_result(True, broker_id)
+                if record_ok:
+                    print("Order recorded in broker log")
+            else:
+                print(f"{broker} order failed: {order_out}")
+                record_broker_result(False, "")
+
+            log_entry = {
+                "t": time.strftime("%Y-%m-%d %H:%M"),
+                "symbol": symbol,
+                "price": price,
+                "rsi": rsi,
+                "setups": setups,
+                "news_checked": news_ok,
+                "plan_created": plan_ok,
+                "alerts_added": alerts_ok,
+                "budget_done": budget_ok,
+                "risk_passed": risk_ok,
+                "order_placed": order_ok
+            }
         else:
-            print(f"{broker} order failed: {order_out}")
-            record_broker_result(False, "")
-        
-        # Log success
-        log_entry = {
-            "t": time.strftime("%Y-%m-%d %H:%M"),
-            "symbol": symbol,
-            "price": price,
-            "rsi": rsi,
-            "setups": setups,
-            "news_checked": news_ok,
-            "plan_created": plan_ok,
-            "alerts_added": alerts_ok,
-            "budget_done": budget_ok,
-            "risk_passed": risk_ok,
-            "order_placed": order_ok
-        }
-    else:
-        print("No signals found")
-        log_entry = {
-            "t": time.strftime("%Y-%m-%d %H:%M"),
-            "status": "no_signals"
-        }
-    
-    # Write log
-    os.makedirs("trader/state", exist_ok=True)
-    with open("trader/state/auto.json", "a") as f:
-        f.write(json.dumps(log_entry) + "\n")
-    
-    print(f"Sleeping {INTERVAL}s...")
-    time.sleep(INTERVAL)
+            print("No signals found")
+            log_entry = {"t": time.strftime("%Y-%m-%d %H:%M"), "status": "no_signals"}
+
+        os.makedirs("trader/state", exist_ok=True)
+        with open("trader/state/auto.json", "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+
+        print(f"Sleeping {INTERVAL}s...")
+        time.sleep(INTERVAL)
+
+
+if __name__ == "__main__":
+    main()
